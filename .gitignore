@@ -1,0 +1,9 @@
+node_modules/ 
+.expo/ 
+build/ 
+build_*/ 
+*.zip 
+__pycache__/ 
+*.pyc 
+.vscode/ 
+.idea/ 

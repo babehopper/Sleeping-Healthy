@@ -1,0 +1,217 @@
+.environment-page {
+  padding: 4px;
+}
+
+.env-card {
+  border-radius: 16px !important;
+  border: 1px solid var(--border-light) !important;
+}
+
+/* Current env rings */
+.env-current-row {
+  display: flex;
+  justify-content: space-around;
+  padding: 10px 0;
+}
+
+.env-metric-ring {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.env-ring {
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.env-ring-inner {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.env-ring-val {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.env-ring-range {
+  font-size: 9px;
+  color: #aaa;
+  margin-top: 2px;
+}
+
+.env-ring-icon {
+  margin-top: -4px;
+}
+
+.env-ring-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.env-ring {
+  width: 80px;
+  height: 80px;
+}
+
+.env-ring-inner {
+  width: 56px;
+  height: 56px;
+}
+
+/* Split layout */
+.env-split-layout {
+  display: flex;
+}
+
+.env-split-left {
+  flex: 1;
+  padding-right: 24px;
+}
+
+.env-split-right {
+  flex: 1;
+  padding-left: 24px;
+}
+
+.env-split-divider {
+  width: 1px;
+  background: var(--border-light);
+  flex-shrink: 0;
+}
+
+.env-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.env-card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+}
+
+.env-card-subtitle {
+  font-size: 12px;
+  color: #999;
+}
+
+.env-gauge-grid {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+}
+
+.env-gauge-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.env-gauge-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #666;
+}
+
+.env-calendar {
+  margin-top: 16px;
+}
+
+.calendar-header {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 8px;
+}
+
+.calendar-header span {
+  text-align: center;
+  font-size: 12px;
+  color: #888;
+  padding: 8px 0;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+
+.calendar-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.calendar-cell:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.env-suggestions {
+  margin-top: 16px;
+}
+
+.suggestion-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.suggestion-item:last-child {
+  border-bottom: none;
+}
+
+.suggestion-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.suggestion-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.suggestion-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+}
+
+.suggestion-desc {
+  font-size: 12px;
+  color: #888;
+  margin-top: 4px;
+}

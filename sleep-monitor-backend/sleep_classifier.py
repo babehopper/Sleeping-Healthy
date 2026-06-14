@@ -63,18 +63,18 @@ class SleepClassifier:
             br_cv = (br_variance ** 0.5) / mean_br if mean_br > 0 else 1.0  # coefficient of variation
             motion_ratio = sum(motions[-10:]) / min(len(motions), 10)  # recent motion fraction
 
-            # --- Classification rules ---
-            # High motion = definitely awake
-            if motion_ratio > 0.5:
+            # --- Classification rules (relaxed for 2 Hz CSI) ---
+            # Very high motion = awake
+            if motion_ratio > 0.7:
                 state = "awake"
             # BR out of physiological sleep range
-            elif mean_br > 25 or mean_br < 6:
+            elif mean_br > 28 or mean_br < 5:
                 state = "awake"
-            # Stable BR within sleep range + low motion
-            elif 8 <= mean_br <= 22 and br_cv < 0.2 and motion_ratio < 0.3:
+            # Stable BR + low motion = sleeping (relaxed thresholds)
+            elif 6 <= mean_br <= 24 and br_cv < 0.35 and motion_ratio < 0.5:
                 state = "sleeping"
-            # Very stable BR = confident sleeping
-            elif 12 <= mean_br <= 18 and br_cv < 0.1:
+            # Moderate BR stability + not high motion
+            elif 10 <= mean_br <= 22 and br_cv < 0.25:
                 state = "sleeping"
             else:
                 state = "awake"

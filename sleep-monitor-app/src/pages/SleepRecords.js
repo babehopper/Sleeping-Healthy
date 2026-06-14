@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, Alert, Dimensions, TouchableOpacity } from 'react-native';
-import { Card, Text, ActivityIndicator } from 'react-native-paper';
+import { Card, Text, Button, ActivityIndicator } from 'react-native-paper';
 import { BarChart } from 'react-native-chart-kit';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSleepRecords } from '../api/sleepRecords';
@@ -17,6 +17,21 @@ const SleepRecords = ({ navigation }) => {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('day');
+  const [aiSuggestions, setAiSuggestions] = useState([]);
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const requestAiSuggestion = async () => {
+    setAiLoading(true);
+    try {
+      const axios = require('axios');
+      const { API_BASE_URL } = require('../api/config');
+      const id = await AsyncStorage.getItem('userId');
+      const resp = await axios.post(`${API_BASE_URL}/user/${id}/generate-suggestions`, { type: 'sleep' });
+      if (resp.data?.success && resp.data?.suggestions?.length > 0) {
+        setAiSuggestions(resp.data.suggestions);
+      }
+    } catch (_) {} finally { setAiLoading(false); }
+  };
 
   useEffect(() => {
     const init = async () => {
@@ -38,22 +53,18 @@ const SleepRecords = ({ navigation }) => {
   // ---- Filter records by tab ----
   const getFiltered = useCallback(() => {
     const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     if (activeTab === 'day') {
-      return records.filter(r => {
-        const d = new Date(r.date);
-        return d >= today;
-      });
+      return records.filter(r => (r.date || '').slice(0, 10) === todayStr);
     }
     if (activeTab === 'week') {
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const dayOfWeek = today.getDay();
       const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
       const weekStart = new Date(today);
       weekStart.setDate(today.getDate() + mondayOffset);
-      return records.filter(r => {
-        const d = new Date(r.date);
-        return d >= weekStart;
-      });
+      const weekStartStr = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
+      return records.filter(r => (r.date || '') >= weekStartStr);
     }
   }, [records, activeTab]);
 
@@ -76,8 +87,7 @@ const SleepRecords = ({ navigation }) => {
 
   // ---- Day View ----
   const renderDayView = () => {
-    const latest = filtered.length > 0 ? filtered[0] : null;
-    if (!latest) {
+    if (filtered.length === 0) {
       return (
         <Card style={styles.card}>
           <Card.Content>
@@ -88,86 +98,93 @@ const SleepRecords = ({ navigation }) => {
       );
     }
 
-    const deep = latest.deepSleep || 0;
-    const light = latest.lightSleep || 0;
-    const rem = latest.remSleep || 0;
-    const dur = latest.duration || (deep + light + rem);
-    const awake = Math.max(0, dur - deep - light - rem);
-    const total = dur || 1;
-    const score = latest.score || latest.efficiency || 0;
+    return filtered.map((record, idx) => {
+      const deep = record.deepSleep || 0;
+      const light = record.lightSleep || 0;
+      const rem = record.remSleep || 0;
+      const dur = record.duration || (deep + light + rem);
+      const awake = Math.max(0, dur - deep - light - rem);
+      const total = dur || 1;
+      const score = record.score || record.efficiency || 0;
 
-    return (
-      <View>
-        {/* Score Card */}
-        <Card style={styles.card}>
-          <Card.Content>
-            <Text style={styles.cardTitle}>睡眠评分</Text>
-            <View style={styles.scoreRow}>
-              <View style={styles.scoreCircle}>
-                <Text style={styles.scoreValue}>{score}</Text>
-                <Text style={styles.scoreUnit}>分</Text>
-              </View>
-              <View style={styles.scoreDetails}>
-                <View style={styles.scoreDetailItem}>
-                  <Text style={styles.sdLabel}>入睡</Text>
-                  <Text style={styles.sdValue}>{fmtTime(latest.startTime)}</Text>
-                </View>
-                <View style={styles.scoreDetailItem}>
-                  <Text style={styles.sdLabel}>醒来</Text>
-                  <Text style={styles.sdValue}>{fmtTime(latest.endTime)}</Text>
-                </View>
-                <View style={styles.scoreDetailItem}>
-                  <Text style={styles.sdLabel}>时长</Text>
-                  <Text style={styles.sdValue}>{fmtDuration(dur)}</Text>
-                </View>
-              </View>
-            </View>
-          </Card.Content>
-        </Card>
+      return (
+        <View key={record.id || idx}>
+          {/* Session Label */}
+          <Text style={styles.sessionLabel}>
+            第{idx + 1}次睡眠 · {fmtTime(record.startTime)} → {fmtTime(record.endTime)}
+          </Text>
 
-        {/* Sleep Stages */}
-        <Card style={styles.card}>
-          <Card.Content>
-            <Text style={styles.cardTitle}>睡眠结构</Text>
-            <View style={styles.stageBar}>
-              {deep > 0 && <View style={[styles.stageSeg, { flex: deep / total * 100, backgroundColor: '#1a6340' }]} />}
-              {light > 0 && <View style={[styles.stageSeg, { flex: light / total * 100, backgroundColor: '#45a86f' }]} />}
-              {rem > 0 && <View style={[styles.stageSeg, { flex: rem / total * 100, backgroundColor: '#7cc99a' }]} />}
-              {awake > 0 && <View style={[styles.stageSeg, { flex: awake / total * 100, backgroundColor: '#e07060' }]} />}
-            </View>
-            <View style={styles.stageLegend}>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: '#1a6340' }]} />
-                <Text style={styles.legendText}>深睡 {deep.toFixed(1)}h</Text>
+          {/* Score Card */}
+          <Card style={styles.card}>
+            <Card.Content>
+              <Text style={styles.cardTitle}>睡眠评分</Text>
+              <View style={styles.scoreRow}>
+                <View style={styles.scoreCircle}>
+                  <Text style={styles.scoreValue}>{score}</Text>
+                  <Text style={styles.scoreUnit}>分</Text>
+                </View>
+                <View style={styles.scoreDetails}>
+                  <View style={styles.scoreDetailItem}>
+                    <Text style={styles.sdLabel}>入睡</Text>
+                    <Text style={styles.sdValue}>{fmtTime(record.startTime)}</Text>
+                  </View>
+                  <View style={styles.scoreDetailItem}>
+                    <Text style={styles.sdLabel}>醒来</Text>
+                    <Text style={styles.sdValue}>{fmtTime(record.endTime)}</Text>
+                  </View>
+                  <View style={styles.scoreDetailItem}>
+                    <Text style={styles.sdLabel}>时长</Text>
+                    <Text style={styles.sdValue}>{fmtDuration(dur)}</Text>
+                  </View>
+                </View>
               </View>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: '#45a86f' }]} />
-                <Text style={styles.legendText}>浅睡 {light.toFixed(1)}h</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: '#7cc99a' }]} />
-                <Text style={styles.legendText}>REM {rem.toFixed(1)}h</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: '#e07060' }]} />
-                <Text style={styles.legendText}>清醒 {awake.toFixed(1)}h</Text>
-              </View>
-            </View>
-          </Card.Content>
-        </Card>
+            </Card.Content>
+          </Card>
 
-        {/* Efficiency */}
-        <Card style={styles.card}>
-          <Card.Content>
-            <Text style={styles.cardTitle}>睡眠效率</Text>
-            <View style={styles.efficiencyRow}>
-              <Text style={styles.effValue}>{latest.efficiency || score}%</Text>
-              <Text style={styles.effHint}>卧床时间内实际睡眠占比</Text>
-            </View>
-          </Card.Content>
-        </Card>
-      </View>
-    );
+          {/* Sleep Stages */}
+          <Card style={styles.card}>
+            <Card.Content>
+              <Text style={styles.cardTitle}>睡眠结构</Text>
+              <View style={styles.stageBar}>
+                {deep > 0 && <View style={[styles.stageSeg, { flex: deep / total * 100, backgroundColor: '#1a6340' }]} />}
+                {light > 0 && <View style={[styles.stageSeg, { flex: light / total * 100, backgroundColor: '#45a86f' }]} />}
+                {rem > 0 && <View style={[styles.stageSeg, { flex: rem / total * 100, backgroundColor: '#7cc99a' }]} />}
+                {awake > 0 && <View style={[styles.stageSeg, { flex: awake / total * 100, backgroundColor: '#e07060' }]} />}
+              </View>
+              <View style={styles.stageLegend}>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: '#1a6340' }]} />
+                  <Text style={styles.legendText}>深睡 {deep.toFixed(1)}h</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: '#45a86f' }]} />
+                  <Text style={styles.legendText}>浅睡 {light.toFixed(1)}h</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: '#7cc99a' }]} />
+                  <Text style={styles.legendText}>REM {rem.toFixed(1)}h</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: '#e07060' }]} />
+                  <Text style={styles.legendText}>清醒 {awake.toFixed(1)}h</Text>
+                </View>
+              </View>
+            </Card.Content>
+          </Card>
+
+          {/* Efficiency */}
+          <Card style={styles.card}>
+            <Card.Content>
+              <Text style={styles.cardTitle}>睡眠效率</Text>
+              <View style={styles.efficiencyRow}>
+                <Text style={styles.effValue}>{record.efficiency || score}%</Text>
+                <Text style={styles.effHint}>卧床时间内实际睡眠占比</Text>
+              </View>
+            </Card.Content>
+          </Card>
+        </View>
+      );
+    });
   };
 
   // ---- Week View ----
@@ -182,11 +199,12 @@ const SleepRecords = ({ navigation }) => {
     const dailyDurations = Array.from({ length: 7 }, (_, i) => {
       const dayDate = new Date(weekStart);
       dayDate.setDate(weekStart.getDate() + i);
-      const dayStr = dayDate.toISOString().slice(0, 10);
-      const rec = records.find(r => {
-        const rd = (r.date || '').slice(0, 10);
-        return rd === dayStr;
-      });
+      // Avoid toISOString() timezone shift — build YYYY-MM-DD manually
+      const y = dayDate.getFullYear();
+      const m = String(dayDate.getMonth() + 1).padStart(2, '0');
+      const d = String(dayDate.getDate()).padStart(2, '0');
+      const dayStr = `${y}-${m}-${d}`;
+      const rec = records.find(r => (r.date || '') === dayStr);
       return rec?.duration || 0;
     });
 
@@ -276,6 +294,32 @@ const SleepRecords = ({ navigation }) => {
       {/* Content */}
       {activeTab === 'day' && renderDayView()}
       {activeTab === 'week' && renderWeekView()}
+
+      {/* AI Suggestions */}
+      <Card style={styles.card}>
+        <Card.Content>
+          <Text style={styles.cardTitle}>智能建议</Text>
+          {aiSuggestions.length > 0 && (
+            <View style={{ marginBottom: 10, gap: 6 }}>
+              {aiSuggestions.map((s, i) => (
+                <View key={i} style={{ padding: 10, backgroundColor: '#f0f8f4', borderRadius: 8 }}>
+                  <Text style={{ fontSize: 13, color: '#333' }}>{s}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+          <Button
+            mode="outlined"
+            onPress={requestAiSuggestion}
+            loading={aiLoading}
+            disabled={aiLoading}
+            style={{ marginTop: 10, borderColor: '#1a6340' }}
+            labelStyle={{ color: '#1a6340' }}
+          >
+            {aiLoading ? '分析中...' : '🤖 生成智能建议'}
+          </Button>
+        </Card.Content>
+      </Card>
     </ScrollView>
   );
 };
@@ -295,6 +339,7 @@ const styles = StyleSheet.create({
   emptyText: { color: '#999', textAlign: 'center', fontSize: 16, paddingVertical: 20 },
   emptyHint: { color: '#bbb', textAlign: 'center', fontSize: 13 },
   // Day — Score
+  sessionLabel: { fontSize: 15, fontWeight: '600', color: '#1a6340', marginBottom: 10, marginTop: 5, textAlign: 'center' },
   scoreRow: { flexDirection: 'row', alignItems: 'center', gap: 20 },
   scoreCircle: {
     width: 90, height: 90, borderRadius: 45, backgroundColor: '#1a6340',

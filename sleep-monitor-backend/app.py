@@ -1106,6 +1106,8 @@ def toggle_alarm(alarm_id):
         'enabled': alarm.enabled
     })
 
+_sleep_sessions = {}  # {user_id: {start_time, awake_count, sleeping_count, br_sum, ...}}
+
 @app.route('/api/device/<device_id>/csi-data', methods=['POST'])
 def receive_csi_data(device_id):
     """Receive processed respiration data from mqtt_processor."""
@@ -1135,6 +1137,70 @@ def receive_csi_data(device_id):
     device = Device.query.filter_by(device_id=device_id).first()
     if device:
         device.status = 'online'
+
+    # ── Sleep session auto-tracking ───────────────────────
+    session = _sleep_sessions.get(user_id)
+    if session is None:
+        _sleep_sessions[user_id] = {
+            'start_time': None, 'last_time': ts,
+            'awake_count': 0, 'sleeping_count': 0,
+            'br_list': [], 'motion_count': 0, 'window_count': 0,
+        }
+        session = _sleep_sessions[user_id]
+
+    session['window_count'] += 1
+    session['last_time'] = ts
+    if bpm > 0:
+        session['br_list'].append(bpm)
+    if motion_detected:
+        session['motion_count'] += 1
+
+    if sleep_state == 'sleeping':
+        session['sleeping_count'] += 1
+        session['awake_count'] = 0
+        # Start sleep session if sleeping for 3+ consecutive windows (~90s at 30s intervals)
+        if session['start_time'] is None and session['sleeping_count'] >= 3:
+            session['start_time'] = ts
+    else:
+        session['awake_count'] += 1
+        # End sleep session: awake for 5+ consecutive windows after sleeping started
+        if session['start_time'] is not None and session['awake_count'] >= 5:
+            start = session['start_time']
+            end = ts
+            duration = (end - start).total_seconds() / 3600.0  # hours
+
+            if duration >= 0.5:  # minimum 30 minutes
+                br_avg = sum(session['br_list']) / len(session['br_list']) if session['br_list'] else 16
+                total_wins = max(session['window_count'], 1)
+                sleeping_ratio = session['sleeping_count'] / total_wins
+                motion_ratio = session['motion_count'] / total_wins
+
+                # Estimate sleep stages from BR patterns
+                deep_pct = max(0.1, min(0.4, 0.35 - motion_ratio * 0.3))  # low BR + no motion
+                light_pct = max(0.3, min(0.6, 0.50 - motion_ratio * 0.1))
+                rem_pct = max(0.05, min(0.25, 0.15 + motion_ratio * 0.1))
+                awake_pct = 1.0 - deep_pct - light_pct - rem_pct
+
+                record = SleepRecord(
+                    user_id=user_id,
+                    device_id=device_id,
+                    start_time=start,
+                    end_time=end,
+                    duration=round(duration, 1),
+                    deep_sleep=round(duration * deep_pct, 1),
+                    light_sleep=round(duration * light_pct, 1),
+                    rem_sleep=round(duration * rem_pct, 1),
+                    score=int(max(30, min(95, sleeping_ratio * 85 + (1 - motion_ratio) * 15))),
+                    efficiency=int(sleeping_ratio * 100),
+                )
+                db.session.add(record)
+
+            # Reset session
+            _sleep_sessions[user_id] = {
+                'start_time': None, 'last_time': ts,
+                'awake_count': 0, 'sleeping_count': 0,
+                'br_list': [], 'motion_count': 0, 'window_count': 0,
+            }
 
     db.session.commit()
 
@@ -1321,27 +1387,44 @@ def mobile_environment_history(user_id):
 
 @app.route('/api/user/<int:user_id>/sleep-suggestion', methods=['GET'])
 def mobile_sleep_suggestion(user_id):
-    """Mobile: generate sleep suggestions from recent data."""
+    """Mobile: generate AI-powered sleep suggestions from real data (calls Kimi API)."""
     record = SleepRecord.query.filter_by(user_id=user_id)\
         .order_by(SleepRecord.start_time.desc()).first()
     session = _get_latest_session(user_id)
     avg_br = sum(r.respiration_rate for r in session) / len(session) if session else 16
 
-    suggestions = []
     if record:
         dur = record.duration or 7.5
-        if dur < 6:
-            suggestions.append('您的睡眠时长偏短，建议保证每晚7-8小时睡眠')
-        if record.deep_sleep and record.deep_sleep < 1.5:
-            suggestions.append('深睡眠占比较低，建议睡前避免咖啡因和剧烈运动')
-        if record.efficiency and record.efficiency < 80:
-            suggestions.append('睡眠效率偏低，建议固定作息时间')
-    if avg_br < 12:
-        suggestions.append('平均呼吸率偏低，建议关注呼吸健康')
-    elif avg_br > 20:
-        suggestions.append('平均呼吸率偏高，建议睡前放松身心')
-    if not suggestions:
-        suggestions.append('整体睡眠状况良好，请继续保持规律作息')
+        score = record.score or 85
+        deep = record.deep_sleep or 2.0
+        prompt = f"你是专业睡眠健康专家。请根据以下数据给出建议：睡眠时长:{dur}h, 评分:{score}, 深睡:{deep}h, 呼吸率:{avg_br}次/分。请给出3条简洁建议(每条15字以内)，格式：建议1|建议2|建议3"
+    else:
+        prompt = f"你是专业睡眠健康专家。用户暂无完整睡眠记录。平均呼吸率:{avg_br}次/分。请给出3条通用睡眠建议(每条15字以内)，格式：建议1|建议2|建议3"
+
+    try:
+        KIMI_API_KEY = os.environ.get('KIMI_API_KEY', 'sk-k18zgUf8qdwh9TWS3JeUj6R76oq8r4Sa5txIlha9oWx4HwgE')
+        resp = requests.post('https://api.moonshot.cn/v1/chat/completions', headers={
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {KIMI_API_KEY}',
+        }, json={
+            "model": "moonshot-v1-8k",
+            "messages": [
+                {"role": "system", "content": "你是专业睡眠健康专家。只输出用|分隔的建议列表，每条建议不超过15个字。不要编号，不要额外文字。"},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 200,
+            "temperature": 0.7,
+        }, timeout=15)
+
+        if resp.status_code == 200:
+            body = resp.json()
+            content = body['choices'][0]['message']['content']
+            items = [s.strip() for s in content.replace('\n', '|').split('|') if s.strip()]
+            suggestions = items[:4] if items else ['保持规律作息，保证7-8小时睡眠']
+        else:
+            suggestions = ['保持规律作息，保证7-8小时睡眠', '睡前避免咖啡因和剧烈运动', '确保卧室温度18-24°C']
+    except Exception:
+        suggestions = ['保持规律作息，保证7-8小时睡眠', '睡前避免咖啡因和剧烈运动', '确保卧室温度18-24°C']
 
     return jsonify({
         'success': True,
